@@ -7,7 +7,10 @@ need nothing installed: no client half, no resource pack.
 
 **Horse armor can be enchanted** — at the enchanting table *and* on the anvil. Vanilla builds horse
 armor with `new Item.Properties().horseArmor(material)` and forgets to add the `enchantable` component,
-so the enchanting table refuses it. The mod adds `.enchantable(material.enchantmentValue())`
+so the enchanting table refuses it (`EnchantmentHelper.getEnchantmentCost` returns 0 without
+`ENCHANTABLE`). The anvil never had that problem — it only looks at the `enchantments` component, and every
+item carries an empty one — so books could already be applied before this mod. The mod adds
+`.enchantable(material.enchantmentValue())`
 in `Item.Properties.horseArmor` and puts all six 26.2 tiers (leather, copper, iron, golden, diamond,
 netherite) into `#minecraft:enchantable/armor`. `EquipmentSlot.BODY` is already part of
 `EquipmentSlotGroup.ARMOR`, so `protection` and friends work on a horse exactly like on a player.
