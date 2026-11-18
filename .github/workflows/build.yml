@@ -1,0 +1,31 @@
+# Automatically build the project for every push and pull request.
+# Catches issues that only show up on a clean machine / a different OS.
+
+name: build
+on: [pull_request, push]
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: checkout repository
+        uses: actions/checkout@v6
+      - name: validate gradle wrapper
+        uses: gradle/actions/wrapper-validation@v6
+      - name: setup jdk
+        uses: actions/setup-java@v5
+        with:
+          java-version: '25'
+          distribution: 'microsoft'
+      # gradle.properties pins a local Windows JDK; the runner has its own.
+      - name: use the runner JDK
+        run: sed -i '/org.gradle.java.home/d' gradle.properties
+      - name: make gradle wrapper executable
+        run: chmod +x ./gradlew
+      - name: build
+        run: ./gradlew build
+      - name: capture build artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: Artifacts
+          path: build/libs/
