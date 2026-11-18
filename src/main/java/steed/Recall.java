@@ -120,6 +120,14 @@ public final class Recall {
 
 	/** Сброс между мирами: статические списки не должны переживать остановку сервера. */
 	public static void clear() {
+		// Чанки, которые держали ради поиска лошади, отпускаем: иначе они остаются
+		// принудительно загруженными и после остановки сервера держат регион в памяти.
+		for (Pending pending : PENDING) {
+			release(pending.forced);
+		}
+		for (Retry retry : RETRIES) {
+			release(retry.forced);
+		}
 		PENDING.clear();
 		RETRIES.clear();
 	}
@@ -166,6 +174,9 @@ public final class Recall {
 		horse = find(horseLevel, bound);
 		if (horse == null) {
 			Steed.LOGGER.info("Steed: в 3x3 нет, расширяю до 5x5");
+			// старые 3x3 обязательно отпускаем: иначе девять чанков остаются принудительно
+			// загруженными до перезапуска сервера — утечка на каждый вызов из незагруженного места
+			forced.release();
 			forced = Forced.around(horseLevel, bound, CHUNK_RADIUS_WIDE);
 			horse = find(horseLevel, bound);
 		}
@@ -218,6 +229,7 @@ public final class Recall {
 		List<Retry> next = new ArrayList<>(RETRIES.size());
 		for (Retry retry : RETRIES) {
 			if (retry.player.level().getServer() != server) {
+				release(retry.forced);
 				continue;
 			}
 			AbstractHorse horse = find(retry.level, retry.bound);
@@ -256,6 +268,7 @@ public final class Recall {
 		List<Pending> next = new ArrayList<>(PENDING.size());
 		for (Pending pending : PENDING) {
 			if (pending.target.getServer() != server) {
+				release(pending.forced);
 				continue;
 			}
 			pending.target.sendParticles(ParticleTypes.PORTAL,

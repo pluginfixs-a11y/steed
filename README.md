@@ -27,8 +27,11 @@ enderman particles, then teleports the horse and puts the horn on a 60 second co
 * a horse with a rider is never summoned; neither is one when there is no room next to you (the search
   goes ±5 horizontally and 24 blocks down, so summoning while flying works — the horse lands on the
   ground below you);
-* the binding is never lost: it survives ender chests, shulker boxes, portals, death and server
-  restarts. The only way to unbind is the **grindstone**, which turns the horn back into a plain one.
+* the binding survives ender chests, shulker boxes, portals, death and server restarts. Right-clicking a
+  *different* horse with a bound horn re-binds it to that horse (the glint stays), so the binding can be
+  moved — the **grindstone** is what turns the horn back into a plain one.
+* chunks that were force-loaded for the search are released as soon as the horse is found, the summon is
+  cancelled, or the server stops.
 
 No chat messages and no text above the hotbar: success, binding and failure are sounds only. Failures
 are logged on the server (`Steed: …`) with the exact reason.
