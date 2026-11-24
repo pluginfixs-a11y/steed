@@ -32,7 +32,9 @@ enderman particles, then teleports the horse and puts the horn on a 60 second co
   ground below you);
 * the binding survives ender chests, shulker boxes, portals, death and server restarts. Right-clicking a
   *different* horse with a bound horn re-binds it to that horse (the glint stays), so the binding can be
-  moved — the **grindstone** is what turns the horn back into a plain one.
+  moved. **Shift+right-click a bound horn** unbinds it on the spot (glint and all) as a shortcut for the
+  **grindstone**; if the bound horse is found dead, the horn unbinds itself instead of forcing a 10-second
+  chunk search on every later click.
 * chunks that were force-loaded for the search are released as soon as the horse is found, the summon is
   cancelled, or the server stops.
 
@@ -57,6 +59,10 @@ are logged on the server (`Steed: …`) with the exact reason.
 
 * Minecraft 26.2, Fabric Loader ≥ 0.19.0, Java 25
 * the jar goes into the server's `mods/`; vanilla clients join as usual
+
+## Changes
+
+**1.0.2** — Shift+right-click unbinds a bound horn; a found-dead horse clears the binding automatically.
 
 ## Build
 

@@ -1,6 +1,7 @@
 package steed;
 
 import net.fabricmc.api.ModInitializer;
+import net.fabricmc.fabric.api.entity.event.v1.ServerLivingEntityEvents;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
 import org.slf4j.Logger;
@@ -23,6 +24,7 @@ public class Steed implements ModInitializer {
 				config.horse_speed_multiplier, config.horse_jump_multiplier);
 
 		ServerTickEvents.END_SERVER_TICK.register(Recall::tick);
+		ServerLivingEntityEvents.AFTER_DEATH.register(Recall::noteDeath);
 		ServerLifecycleEvents.SERVER_STOPPED.register(server -> Recall.clear());
 
 		if (System.getProperty("steed.selftest") != null) {

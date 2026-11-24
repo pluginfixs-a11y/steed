@@ -64,6 +64,7 @@ public final class SelfTest {
 				testEnchant(server, level);
 				testAnvil(server, level);
 				testGrindstone(level);
+				testShiftUnbind(level);
 				testHorseBoost(level);
 				testWideSearch(level);
 				prepareEntities(level);
@@ -203,6 +204,33 @@ public final class SelfTest {
 		boolean glint = !result.isEmpty() && Boolean.TRUE.equals(result.get(DataComponents.ENCHANTMENT_GLINT_OVERRIDE));
 		Steed.LOGGER.info("SELFTEST grindstone: результат={} привязка={} блеск={} (ожидание goat_horn / false / false)",
 				result.isEmpty() ? "пусто" : result.getItem(), stillBound, glint);
+		horse.discard();
+	}
+
+	/** Shift+ПКМ по привязанному рогу снимает привязку и блеск без точильного камня. */
+	private static void testShiftUnbind(ServerLevel level) {
+		Horse horse = EntityTypes.HORSE.create(level, EntitySpawnReason.COMMAND);
+		if (horse == null) {
+			throw new IllegalStateException("не смог создать лошадь");
+		}
+		horse.snapTo(ORIGIN.getX() + 0.5, ORIGIN.getY(), ORIGIN.getZ() + 0.5);
+		FakePlayer player = FakePlayer.get(level);
+		ItemStack horn = goatHorn(level);
+		HornData.bind(horn, horse);
+		player.setShiftKeyDown(true);
+		try {
+			Recall.use(player, horn);
+		} finally {
+			player.setShiftKeyDown(false);
+		}
+		boolean unbound = HornData.read(horn) == null
+				&& !Boolean.TRUE.equals(horn.get(DataComponents.ENCHANTMENT_GLINT_OVERRIDE));
+		Steed.LOGGER.info("SELFTEST shift-unbind: привязка={} блеск={} (ожидание false/false)",
+				HornData.read(horn) != null,
+				Boolean.TRUE.equals(horn.get(DataComponents.ENCHANTMENT_GLINT_OVERRIDE)));
+		if (!unbound) {
+			Steed.LOGGER.error("SELFTEST shift-unbind: провал");
+		}
 		horse.discard();
 	}
 

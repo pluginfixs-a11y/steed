@@ -10,6 +10,7 @@ import net.minecraft.sounds.SoundEvents;
 import net.minecraft.sounds.SoundSource;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EntityDimensions;
+import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.Relative;
 import net.minecraft.world.entity.animal.equine.AbstractHorse;
 import net.minecraft.world.item.ItemStack;
@@ -18,14 +19,17 @@ import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.UUID;
 
 /**
  * Вызов лошади по рогу: поиск безопасного места рядом с игроком, двухсекундный «телепорт
  * эндермена» с частицами, потом сама лошадь.
  * <p>
- * Привязка с рога не снимается никогда — единственный способ отвязать — точильный камень.
+ * Привязка снимается точильным камнем, Shift+ПКМ по рогу и автоматически, если привязанная лошадь
+ * погибла (смерть запоминается по UUID — после удаления сущности getEntity() её уже не найти).
  * Лошадь ищется и в незагруженных чанках: сначала грузится 3x3 чанка вокруг последних известных
  * координат, если её там нет — 5x5 (лошадь могла отойти). Поиск повторяется до 200 тиков,
  * потому что на загруженном сервере чанки читаются с диска секундами. Координаты в роге
@@ -48,6 +52,28 @@ public final class Recall {
 	private static final int SEARCH_DOWN = 24;
 	/** Насколько вверх ищем (на случай, если игрок под землёй). */
 	private static final int SEARCH_UP = 8;
+
+	/**
+	 * UUID погибших приручённых лошадей: через 20 тиков после смерти ваниль удаляет сущность, и
+	 * getEntity() возвращает null — отличить её от «лошадь в незагруженном чанке» больше нельзя.
+	 * Очищается на остановке сервера; предел на всякий случай, чтобы долгий сервер не копил UUID.
+	 */
+	private static final Set<UUID> DEAD = new HashSet<>();
+	private static final int DEAD_LIMIT = 4096;
+
+	/** Из Fabric AFTER_DEATH: запоминаем гибель, пока сущность ещё доступна по UUID. */
+	public static void noteDeath(LivingEntity entity, net.minecraft.world.damagesource.DamageSource source) {
+		if (entity instanceof AbstractHorse horse) {
+			if (DEAD.size() >= DEAD_LIMIT) {
+				DEAD.clear();
+			}
+			DEAD.add(horse.getUUID());
+		}
+	}
+
+	private static boolean dead(HornData.Bound bound, AbstractHorse known) {
+		return DEAD.contains(bound.horse()) || (known != null && known.isDeadOrDying());
+	}
 
 	/** Принудительно загруженная квадратная область чанков вокруг лошади. */
 	record Forced(ServerLevel level, int cx, int cz, int radius) {
@@ -130,10 +156,28 @@ public final class Recall {
 		}
 		PENDING.clear();
 		RETRIES.clear();
+		DEAD.clear();
 	}
 
-	/** ПКМ рогом: вызов, кулдаун и звуковой отклик. */
+	/**
+	 * Shift+ПКМ по привязанному рогу снимает привязку. Возвращает {@code true}, если обработано —
+	 * ванильный вызов рога в этом случае не должен играть звук и ставить кулдаун.
+	 */
+	public static boolean unbindIfSneaking(ServerPlayer player, ItemStack horn) {
+		if (!player.isShiftKeyDown() || HornData.read(horn) == null) {
+			return false;
+		}
+		HornData.unbind(horn);
+		removeVanillaCooldown(player, horn);
+		Steed.LOGGER.info("Steed: рог отвязан по Shift+ПКМ (игрок {})", player.getPlainTextName());
+		return true;
+	}
+
+	/** ПКМ рогом: вызов, кулдаун и звуковой отклик. Shift+ПКМ по привязанному рогу — отвязка. */
 	public static void use(ServerPlayer player, ItemStack horn) {
+		if (unbindIfSneaking(player, horn)) {
+			return;
+		}
 		Result result = start(player, horn);
 		switch (result) {
 			case OK -> {
@@ -160,6 +204,15 @@ public final class Recall {
 		MinecraftServer server = player.level().getServer();
 		ServerLevel horseLevel = server.getLevel(bound.dimension());
 		if (horseLevel == null) {
+			return Result.HORSE_GONE;
+		}
+		// мертвая лошадь после удаления из lookup уже не находится по UUID — для неё нужен death-хук.
+		// isDeadOrDying ловит окно самих 20 тиков анимации смерти, пока сущность ещё в мире.
+		Entity known = horseLevel.getEntity(bound.horse());
+		if (dead(bound, known instanceof AbstractHorse horse ? horse : null)) {
+			HornData.unbind(horn);
+			Steed.LOGGER.info("Steed: привязанная лошадь погибла — рог отвязан (игрок {})",
+					player.getPlainTextName());
 			return Result.HORSE_GONE;
 		}
 		AbstractHorse horse = find(horseLevel, bound);
@@ -232,7 +285,22 @@ public final class Recall {
 				release(retry.forced);
 				continue;
 			}
+			// рог могли отвязать или перевязать, пока грузились чанки: не телепортируем чужую лошадь
+			HornData.Bound current = HornData.read(retry.horn);
+			if (current == null || !current.horse().equals(retry.bound.horse())) {
+				release(retry.forced);
+				continue;
+			}
 			AbstractHorse horse = find(retry.level, retry.bound);
+			if (dead(retry.bound, horse)) {
+				// подтверждённая гибель, а не просто медленная загрузка чанков
+				HornData.unbind(retry.horn);
+				release(retry.forced);
+				removeVanillaCooldown(retry.player, retry.horn);
+				feedback(retry.player, Result.HORSE_GONE);
+				Steed.LOGGER.info("Steed: привязанная лошадь погибла во время поиска — рог отвязан");
+				continue;
+			}
 			if (horse != null) {
 				Steed.LOGGER.info("Steed: лошадь {} нашлась после загрузки чанков", retry.bound.horse());
 				Result result = startWith(retry.player, retry.horn, horse, retry.forced);
@@ -252,6 +320,7 @@ public final class Recall {
 				Steed.LOGGER.warn("Steed: лошадь {} не нашлась за {} тиков ({} {} {} {}), чанк загружен={}",
 						retry.bound.horse(), RETRY_TICKS, retry.bound.dimension().identifier(),
 						retry.bound.x(), retry.bound.y(), retry.bound.z(), retry.forced.loaded());
+				// таймаут — это «не нашлась», а не «погибла»: живая лошадь могла уйти дальше 5x5
 				release(retry.forced);
 				removeVanillaCooldown(retry.player, retry.horn);
 				feedback(retry.player, Result.HORSE_GONE);
@@ -271,6 +340,12 @@ public final class Recall {
 				release(pending.forced);
 				continue;
 			}
+			// перевязка во время задержки: телепорт и запись координат в новый рог недопустимы
+			HornData.Bound current = HornData.read(pending.horn);
+			if (current == null || !current.horse().equals(pending.horse.getUUID())) {
+				release(pending.forced);
+				continue;
+			}
 			pending.target.sendParticles(ParticleTypes.PORTAL,
 					pending.spot.x, pending.spot.y + 0.9, pending.spot.z, 8, 0.4, 0.7, 0.4, 0.05);
 			if (pending.ticks > 1) {
@@ -279,13 +354,18 @@ public final class Recall {
 				continue;
 			}
 			AbstractHorse horse = pending.horse;
-			if (!horse.isRemoved() && horse.isAlive()) {
+			// isRemoved()/!isAlive() истинны и при выгрузке чанка: живая выгруженная лошадь
+			// не должна развязывать рог. Только подтверждённая смерть или нулевое здоровье.
+			if (!dead(current, horse)) {
 				horse.teleportTo(pending.target, pending.spot.x, pending.spot.y, pending.spot.z,
 						Set.<Relative>of(), horse.getYRot(), horse.getXRot(), false);
 				horse.setDeltaMovement(Vec3.ZERO);
 				horse.fallDistance = 0.0F;
 				// координаты в роге — уже новые: следующая попытка найдёт чанк с первого раза
 				HornData.storePosition(pending.horn, horse);
+			} else {
+				HornData.unbind(pending.horn);
+				Steed.LOGGER.info("Steed: лошадь погибла во время вызова — рог отвязан");
 			}
 			release(pending.forced);
 		}
