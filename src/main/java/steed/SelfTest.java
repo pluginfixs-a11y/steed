@@ -194,7 +194,7 @@ public final class SelfTest {
 		horse.snapTo(ORIGIN.getX() + 0.5, ORIGIN.getY(), ORIGIN.getZ() + 0.5);
 		FakePlayer player = FakePlayer.get(level);
 		ItemStack bound = goatHorn(level);
-		HornData.bind(bound, horse);
+		HornData.bind(bound, horse, player);
 
 		GrindstoneMenu menu = new GrindstoneMenu(0, player.getInventory(), ContainerLevelAccess.create(level, ORIGIN));
 		menu.getSlot(0).set(bound.copy());
@@ -216,7 +216,7 @@ public final class SelfTest {
 		horse.snapTo(ORIGIN.getX() + 0.5, ORIGIN.getY(), ORIGIN.getZ() + 0.5);
 		FakePlayer player = FakePlayer.get(level);
 		ItemStack horn = goatHorn(level);
-		HornData.bind(horn, horse);
+		HornData.bind(horn, horse, player);
 		player.setShiftKeyDown(true);
 		try {
 			Recall.use(player, horn);
@@ -264,12 +264,14 @@ public final class SelfTest {
 		recallPlayer = FakePlayer.get(level);
 		recallPlayer.snapTo(recallBase.getX() + 0.5, recallBase.getY(), recallBase.getZ() + 0.5);
 		recallHorn = goatHorn(level);
-		HornData.bind(recallHorn, recallHorse);
+		HornData.bind(recallHorn, recallHorse, recallPlayer);
 	}
 
 	/** ПКМ рогом по лошади: привязка в custom_data + блеск. Идёт через настоящий {@code Entity.interact}. */
 	private static void testHornBind() {
 		ServerLevel level = (ServerLevel) bindPlayer.level();
+		bindHorse.setTamed(true);
+		bindHorse.setOwner(bindPlayer);
 		bindPlayer.setItemInHand(InteractionHand.MAIN_HAND, goatHorn(level));
 		bindHorse.interact(bindPlayer, InteractionHand.MAIN_HAND, bindHorse.position());
 		ItemStack horn = bindPlayer.getMainHandItem();
@@ -277,6 +279,17 @@ public final class SelfTest {
 		boolean glint = Boolean.TRUE.equals(horn.get(DataComponents.ENCHANTMENT_GLINT_OVERRIDE));
 		boolean sameHorse = bound != null && bound.horse().equals(bindHorse.getUUID());
 		Steed.LOGGER.info("SELFTEST horn-bind: привязка={} та же лошадь={} блеск={}", bound != null, sameHorse, glint);
+
+		// дикую лошадь привязать рогом нельзя
+		Horse wild = spawn(level, ORIGIN.offset(54, 0, 0));
+		bindPlayer.setItemInHand(InteractionHand.MAIN_HAND, goatHorn(level));
+		wild.interact(bindPlayer, InteractionHand.MAIN_HAND, wild.position());
+		boolean wildBound = HornData.read(bindPlayer.getMainHandItem()) != null;
+		Steed.LOGGER.info("SELFTEST horn-bind-wild: привязка={} (ожидание false)", wildBound);
+		if (wildBound) {
+			Steed.LOGGER.error("SELFTEST horn-bind-wild: провал");
+		}
+		wild.discard();
 	}
 
 	/** Вызов: всадник — отказ, свободное место — телепорт через задержку, замурованный игрок — отказ. */
@@ -314,7 +327,7 @@ public final class SelfTest {
 	private static void testWideSearch(ServerLevel level) {
 		BlockPos far = ORIGIN.offset(200, 0, 200);
 		HornData.Bound stale = new HornData.Bound(UUID.randomUUID(), level.dimension(),
-				far.getX() - 32, far.getY(), far.getZ() - 32);
+				far.getX() - 32, far.getY(), far.getZ() - 32, null);
 		int hx = far.getX() >> 4;
 		int hz = far.getZ() >> 4;
 		boolean before = level.getChunkSource().getChunkNow(hx, hz) != null;

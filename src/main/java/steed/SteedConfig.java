@@ -63,10 +63,26 @@ public class SteedConfig {
 				Steed.LOGGER.error("Не смог прочитать {}, беру значения по умолчанию", PATH, e);
 			}
 		}
+		config.clamp();
 		config.save();
 		instance = config;
 		loaded = true;
 		return config;
+	}
+
+	/** Плохие значения из файла не должны ломать атрибуты и поиск места для вызова. */
+	private void clamp() {
+		if (Double.isFinite(horse_speed_multiplier)) {
+			horse_speed_multiplier = Math.max(0.1, Math.min(10.0, horse_speed_multiplier));
+		} else {
+			horse_speed_multiplier = 1.3;
+		}
+		if (Double.isFinite(horse_jump_multiplier)) {
+			horse_jump_multiplier = Math.max(0.1, Math.min(10.0, horse_jump_multiplier));
+		} else {
+			horse_jump_multiplier = 1.3;
+		}
+		recall_radius = Math.max(1, Math.min(64, recall_radius));
 	}
 
 	public void save() {

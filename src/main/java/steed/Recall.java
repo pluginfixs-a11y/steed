@@ -2,6 +2,7 @@ package steed;
 
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.particles.ParticleTypes;
+import net.minecraft.network.chat.Component;
 import net.minecraft.network.protocol.game.ClientboundCooldownPacket;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
@@ -19,7 +20,7 @@ import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 
 import java.util.ArrayList;
-import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
@@ -58,14 +59,14 @@ public final class Recall {
 	 * getEntity() возвращает null — отличить её от «лошадь в незагруженном чанке» больше нельзя.
 	 * Очищается на остановке сервера; предел на всякий случай, чтобы долгий сервер не копил UUID.
 	 */
-	private static final Set<UUID> DEAD = new HashSet<>();
+	private static final Set<UUID> DEAD = new LinkedHashSet<>();
 	private static final int DEAD_LIMIT = 4096;
 
 	/** Из Fabric AFTER_DEATH: запоминаем гибель, пока сущность ещё доступна по UUID. */
 	public static void noteDeath(LivingEntity entity, net.minecraft.world.damagesource.DamageSource source) {
 		if (entity instanceof AbstractHorse horse) {
 			if (DEAD.size() >= DEAD_LIMIT) {
-				DEAD.clear();
+				DEAD.remove(DEAD.iterator().next());
 			}
 			DEAD.add(horse.getUUID());
 		}
@@ -103,6 +104,7 @@ public final class Recall {
 	}
 
 	private static final class Pending {
+		final ServerPlayer player;
 		final ServerLevel target;
 		final AbstractHorse horse;
 		final ItemStack horn;
@@ -110,7 +112,8 @@ public final class Recall {
 		final Forced forced;
 		int ticks;
 
-		Pending(ServerLevel target, AbstractHorse horse, ItemStack horn, Vec3 spot, int ticks, Forced forced) {
+		Pending(ServerPlayer player, ServerLevel target, AbstractHorse horse, ItemStack horn, Vec3 spot, int ticks, Forced forced) {
+			this.player = player;
 			this.target = target;
 			this.horse = horse;
 			this.horn = horn;
@@ -201,6 +204,11 @@ public final class Recall {
 			Steed.LOGGER.info("Steed: у рога нет привязки (игрок {})", player.getPlainTextName());
 			return Result.NOT_BOUND;
 		}
+		if (bound.owner() != null && !bound.owner().equals(player.getUUID())) {
+			HornData.unbind(horn);
+			player.sendOverlayMessage(Component.literal("Чужой рог"));
+			return Result.NOT_BOUND;
+		}
 		MinecraftServer server = player.level().getServer();
 		ServerLevel horseLevel = server.getLevel(bound.dimension());
 		if (horseLevel == null) {
@@ -236,6 +244,20 @@ public final class Recall {
 		if (horse != null) {
 			return startWith(player, horn, horse, forced);
 		}
+		// спам ПКМ не должен копить десятки ожидающих загрузок одной и той же лошади
+		for (Retry retry : RETRIES) {
+			if (retry.player.getUUID().equals(player.getUUID()) && retry.bound.horse().equals(bound.horse())) {
+				release(forced);
+				return Result.LOADING;
+			}
+		}
+		for (Pending pending : PENDING) {
+			if (pending.player.getUUID().equals(player.getUUID())
+					&& pending.horse.getUUID().equals(bound.horse())) {
+				release(forced);
+				return Result.LOADING;
+			}
+		}
 		RETRIES.add(new Retry(player, horn, bound, horseLevel, forced, RETRY_TICKS));
 		return Result.LOADING;
 	}
@@ -259,7 +281,7 @@ public final class Recall {
 			release(forced);
 			return Result.NO_SPOT;
 		}
-		PENDING.add(new Pending(targetLevel, horse, horn, spot,
+		PENDING.add(new Pending(player, targetLevel, horse, horn, spot,
 				Math.max(1, SteedConfig.get().recall_delay_ticks), forced));
 		return Result.OK;
 	}
@@ -357,6 +379,12 @@ public final class Recall {
 			// isRemoved()/!isAlive() истинны и при выгрузке чанка: живая выгруженная лошадь
 			// не должна развязывать рог. Только подтверждённая смерть или нулевое здоровье.
 			if (!dead(current, horse)) {
+				if (horse.getFirstPassenger() != null) {
+					Steed.LOGGER.info("Steed: на лошади {} появился всадник во время вызова — телепорт отменён",
+							horse.getUUID());
+					release(pending.forced);
+					continue;
+				}
 				horse.teleportTo(pending.target, pending.spot.x, pending.spot.y, pending.spot.z,
 						Set.<Relative>of(), horse.getYRot(), horse.getXRot(), false);
 				horse.setDeltaMovement(Vec3.ZERO);

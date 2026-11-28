@@ -8,6 +8,8 @@ import net.minecraft.sounds.SoundSource;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResult;
 import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.EntityReference;
+import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.animal.equine.AbstractHorse;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
@@ -52,7 +54,15 @@ public abstract class HorseInteractMixin {
 			cir.setReturnValue(InteractionResult.SUCCESS);
 			return;
 		}
-		HornData.bind(held, horse);
+		// рог привязываем только к своей приручённой лошади; ванильное взаимодействие не отменяем
+		if (!horse.isTamed()) {
+			return;
+		}
+		EntityReference<LivingEntity> ref = horse.getOwnerReference();
+		if (ref != null && !ref.matches(player)) {
+			return;
+		}
+		HornData.bind(held, horse, player);
 		blowHorn(horse, held);
 		if (player instanceof ServerPlayer serverPlayer && serverPlayer.connection != null) {
 			// ванильный клиент успевает «сесть» на лошадь локально — снимаем фантомного всадника

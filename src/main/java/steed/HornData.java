@@ -6,7 +6,9 @@ import net.minecraft.nbt.CompoundTag;
 import net.minecraft.resources.Identifier;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.world.entity.animal.equine.AbstractHorse;
+import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
 import net.minecraft.world.item.component.CustomData;
 import net.minecraft.world.level.Level;
 
@@ -20,20 +22,21 @@ import java.util.UUID;
 public final class HornData {
 	private static final String KEY = "steed";
 
-	public record Bound(UUID horse, ResourceKey<Level> dimension, int x, int y, int z) {
+	public record Bound(UUID horse, ResourceKey<Level> dimension, int x, int y, int z, UUID owner) {
 	}
 
 	private HornData() {
 	}
 
-	/** Козий рог = предмет с компонентом инструмента. */
+	/** Козий рог = только ванильный goat_horn. */
 	public static boolean isHorn(ItemStack stack) {
-		return !stack.isEmpty() && stack.has(DataComponents.INSTRUMENT);
+		return stack.is(Items.GOAT_HORN);
 	}
 
-	public static void bind(ItemStack stack, AbstractHorse horse) {
+	public static void bind(ItemStack stack, AbstractHorse horse, Player owner) {
 		CompoundTag tag = new CompoundTag();
 		tag.putString("horse", horse.getUUID().toString());
+		tag.putString("owner", owner.getUUID().toString());
 		tag.putString("dim", horse.level().dimension().identifier().toString());
 		tag.putInt("x", horse.blockPosition().getX());
 		tag.putInt("y", horse.blockPosition().getY());
@@ -54,8 +57,9 @@ public final class HornData {
 		try {
 			UUID uuid = UUID.fromString(tag.getStringOr("horse", ""));
 			Identifier dim = Identifier.parse(tag.getStringOr("dim", "minecraft:overworld"));
+			UUID owner = tag.contains("owner") ? UUID.fromString(tag.getStringOr("owner", "")) : null;
 			return new Bound(uuid, ResourceKey.create(Registries.DIMENSION, dim),
-					tag.getIntOr("x", 0), tag.getIntOr("y", 0), tag.getIntOr("z", 0));
+					tag.getIntOr("x", 0), tag.getIntOr("y", 0), tag.getIntOr("z", 0), owner);
 		} catch (Exception e) {
 			return null;
 		}

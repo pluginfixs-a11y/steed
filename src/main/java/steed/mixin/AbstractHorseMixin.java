@@ -2,6 +2,9 @@ package steed.mixin;
 
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.animal.equine.AbstractHorse;
+import net.minecraft.world.entity.animal.equine.Donkey;
+import net.minecraft.world.entity.animal.equine.Horse;
+import net.minecraft.world.entity.animal.equine.Mule;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.storage.ValueInput;
 import org.spongepowered.asm.mixin.Mixin;
@@ -22,11 +25,21 @@ public abstract class AbstractHorseMixin {
 
 	@Inject(method = "<init>", at = @At("RETURN"))
 	private void steed$boostOnCreate(EntityType<?> type, Level level, CallbackInfo ci) {
-		HorseBoost.applyTo((AbstractHorse) (Object) this);
+		if (steed$boostable()) {
+			HorseBoost.applyTo((AbstractHorse) (Object) this);
+		}
 	}
 
 	@Inject(method = "readAdditionalSaveData", at = @At("RETURN"))
 	private void steed$boostOnLoad(ValueInput input, CallbackInfo ci2) {
-		HorseBoost.applyTo((AbstractHorse) (Object) this);
+		if (steed$boostable()) {
+			HorseBoost.applyTo((AbstractHorse) (Object) this);
+		}
+	}
+
+	/** Буст только для настоящих лошадей: верблюды, ламы и нежить-лошади не трогаются. */
+	private boolean steed$boostable() {
+		Object self = (Object) this;
+		return self instanceof Horse || self instanceof Donkey || self instanceof Mule;
 	}
 }
